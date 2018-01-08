@@ -6,6 +6,9 @@ from os.path import join, exists, isdir
 import logging
 import numpy as np
 
+from PIL import Image
+from scipy.misc.pilutil import fromimage
+from scipy.misc import imresize
 
 logger = logging.getLogger(__name__)
 
@@ -54,22 +57,25 @@ class Bunch(dict):
         # ignoring the pickled __dict__
         pass
 
+def read_jpg(file_path):
+    image = Image.open(file_path)
+    if hasattr(image, '_getexif'):
+        orientation = 0x0112
+        exif = image._getexif()
+        if exif is not None:
+            orientation = exif[orientation]
+            rotations = {
+                3: Image.ROTATE_180,
+                6: Image.ROTATE_270,
+                8: Image.ROTATE_90
+            }
+            if orientation in rotations:
+                image = image.transpose(rotations[orientation])
+
+    return fromimage(image, flatten=False, mode=None)
 
 def _load_imgs(file_paths, slice_, color, resize):
     """Internally used to load images"""
-
-    # Try to import imread and imresize from PIL. We do this here to prevent
-    # the whole sklearn.datasets module from depending on PIL.
-    try:
-        try:
-            from scipy.misc import imread
-        except ImportError:
-            from scipy.misc.pilutil import imread
-        from scipy.misc import imresize
-    except ImportError:
-        raise ImportError("The Python Imaging Library (PIL)"
-                          " is required to load data from jpeg files")
-
     # compute the portion of the images to load to respect the slice_ parameter
     # given by the caller
     default_slice = (slice(0, 250), slice(0, 250))
@@ -97,7 +103,7 @@ def _load_imgs(file_paths, slice_, color, resize):
 
         # Checks if jpeg reading worked. Refer to issue #3594 for more
         # details.
-        img = imread(file_path)
+        img = read_jpg(file_path)
         if img.ndim is 0:
             raise RuntimeError("Failed to read the image file %s, "
                                "Please make sure that libjpeg is installed"
@@ -141,23 +147,41 @@ def _fetch_faces(data_folder_path, slice_=None, color=False, resize=None):
     # all faces of the same person in a row, as it would break some
     # cross validation and learning algorithms such as SGD and online
     # k-means that make an IID assumption
-
     indices = np.arange(n_faces)
     np.random.RandomState(42).shuffle(indices)
-    faces, target = faces[indices], target[indices]
-    return faces, target, target_names
+    faces, target, file_paths = faces[indices], target[indices], np.array(file_paths)[indices]
+    return faces, target, target_names, file_paths
 
 
 def fetch_faces(data_folder_path, resize=250, color=False,
                      slice_=(slice(70, 195), slice(78, 172))):
     # load and memoize the pairs as np arrays
-    faces, target, target_names = _fetch_faces(
+    faces, target, target_names, file_paths = _fetch_faces(
         data_folder_path, resize=resize, color=color, slice_=slice_)
-
     # pack the results as a Bunch instance
     return Bunch(data=faces.reshape(len(faces), -1), images=faces,
-                 target=target, target_names=target_names,
+                 target=target, target_names=target_names, file_paths = file_paths,
                  DESCR="Kids faces dataset")
 
 
-# print fetch_faces('/Users/wyh/faces')
+def load_one_face(jpeg_file, resize=250, color=False, slice_=(slice(70, 195), slice(78, 172))):
+    img = read_jpg(jpeg_file)
+    if img.ndim is 0:
+        raise RuntimeError("Failed to read the image file %s, "
+                           "Please make sure that libjpeg is installed"
+                           % jpeg_file)
+    face = np.asarray(img, dtype=np.float32)
+    face /= 255.0  # scale uint8 coded colors to the [0.0, 1.0] floats
+
+    if resize is not None:
+        face = imresize(face, (resize, resize))
+        face = np.asarray(face[slice_], dtype=np.float32)
+
+    if not color:
+        # average the color channels to compute a gray levels
+        # representation
+        face = face.mean(axis=2)
+
+    return face
+
+#print fetch_faces('/Users/wyh/a2pykids_class/machine_learning/face_identification/faces')

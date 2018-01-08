@@ -1,4 +1,5 @@
-# docker run -d -p=8888:8888 -p=80:80 -v=/Users/wyh/a2pykids_class/machine_learning/face_identification:/notebook -t keras-flask-jupyter
+# docker run -d -p=8888:8888 -p=5000:5000 -v=/Users/wyh/a2pykids_class/machine_learning/face_identification:/notebook -t keras-flask-jupyter
+
 FROM debian:stretch
 
 # install debian packages
@@ -49,7 +50,8 @@ RUN python -c "import tensorflow; print(tensorflow.__version__)" \
 RUN apt-get update -qq \
  && apt-get install --no-install-recommends -y \
     python-matplotlib \
-    python-pillow
+    python-pillow \
+    sqlite3
 
 # install additional python packages
 RUN pip --no-cache-dir install \
@@ -67,6 +69,14 @@ RUN pip --no-cache-dir install \
     flask-restful \
     uwsgi \
  && python -m ipykernel.kernelspec
+
+# install opencv and more python packages
+RUN pip --no-cache-dir install \
+    opencv-python \
+    requests \
+    Werkzeug
+
+RUN apt-get install --no-install-recommends -y nano
 
  # configure console
 RUN echo 'alias ll="ls --color=auto -lA"' >> /root/.bashrc \
@@ -94,7 +104,7 @@ RUN mkdir -p /var/log/nginx/app /var/log/uwsgi/app /var/log/supervisor \
 EXPOSE 8888
 
 # for flask
-EXPOSE 80
+EXPOSE 5000
 
 WORKDIR /notebook/
 
